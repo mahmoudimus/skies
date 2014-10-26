@@ -115,6 +115,140 @@ class If_InUSEast1(Condition):
 # class AWSInstanceType2Arch(skies.Mapping):
 #     m1_small = Item('m1.small', {'Arch': '64'})
 
+import troposphere as tsp
+import troposphere.ec2 as ec2
+import troposphere.elasticloadbalancing as elb
+
+
+class Pypi(Template):  # template = tsp.Template()
+    # template.add_description('Pypi')
+    """
+    a cloudformation template that provisions a high performance devpi
+    service.
+    """
+
+    # template.add_parameter([
+    #     tsp.Parameter(
+    #         'Prefix',
+    #         Description='Naming prefix.',
+    #         Type='String',
+    #         Default='pypi',
+    #     ),
+    # ])
+    @skies.parameter(name='Prefix', param_type='String')
+    def prefix(self):
+        """Naming prefix."""
+        return {'Default': 'pypi'}
+
+    # TODO:
+    # atlas.infra_params(template)  # ssh_key, Env, Silo
+    # atlas.conf_params(template)   # Conf Name, Conf Version, Conf tarball bucket
+    # atlas.conditions(template)
+    # atlas.instance_params(template, roles_default=['pypi'], iam_default='pypi')
+    # atlas.scaling_params(template)
+    # atlas.mappings(template, accounts=[atlas.poundpay, atlas.balanced_vault])
+
+
+    # pypi_secgrp = atlas.instance_secgrp(
+    #     template,
+    #     name='Pypi',
+    #     SecurityGroupIngress=[
+    #         tsp.ec2.SecurityGroupRule(
+    #             'Pypi',
+    #             IpProtocol='tcp',
+    #             FromPort='80',
+    #             ToPort='80',
+    #             CidrIp=atlas.vpc_cidr,
+    #         ),
+    #     ]
+    # )
+    @skies.secgrp_ingress(protocol='tcp', from_port='80', to_port='80')
+    def pypi_secgrp(self):
+        """pypi"""
+
+    # atlas.cfn_auth_metadata(i_meta_data)
+    @skies.auth_metadata()
+    def auth_metadata(self):
+        return 'pass'
+
+    # atlas.cfn_init_metadata(i_meta_data)
+    @skies.init_metadata()
+    def init_metadata(self):
+        return 'pass'
+
+    # i_user_data = tsp.Join(
+    #     '',
+    #     atlas.user_data('PypiLaunchConfiguration') +
+    #     atlas.user_data_signal_on_scaling_failure(),
+    # )
+    @skies.user_data()
+    def user_data(self):
+        return tsp.Join(
+            '',
+            user_data('PypiLaunchConfiguration') +
+            user_data_signal_on_scaling_failure(),
+        )
+
+    @skies.launch_config()
+    def pypi_launch_config(self):
+
+
+
+# launch configuration
+
+i_launchconf = atlas.instance_launchconf(
+    template,
+    name='Pypi',
+    UserData=tsp.Base64(i_user_data),
+    Metadata=i_meta_data,
+    SecurityGroups=[tsp.Ref(pypi_secgrp)],
+)
+
+
+atlas.external_lb(template,
+    name='PypiHTTP',
+    SecurityGroupIngress=[
+        ec2.SecurityGroupRule(
+            'HTTPS',
+            IpProtocol='tcp',
+            FromPort='443',
+            ToPort='443',
+            CidrIp='0.0.0.0/0'
+        )
+    ],
+    Listeners=[
+        elb.Listener(
+            LoadBalancerPort='443',
+            InstancePort='443',
+            Protocol='HTTPS',
+            InstanceProtocol='HTTPS',
+            SSLCertificateId=tsp.Join('', [
+                'arn:aws:iam::',
+                tsp.Ref('AWS::AccountId'),
+                ':server-certificate/',
+                atlas.ssl_cert_id,
+            ]),
+        ),
+    ],
+    HealthCheck=elb.HealthCheck(
+        Target='TCP:443',
+        HealthyThreshold='3',
+        UnhealthyThreshold='5',
+        Interval='30',
+        Timeout='5',
+    )
+)
+
+# scale group
+scaling_group = atlas.instance_scalegrp(
+    template,
+    name='Pypi',
+    LaunchConfigurationName=tsp.Ref(i_launchconf),
+    MinSize=tsp.Ref('MinSize'),
+    MaxSize=tsp.Ref('MaxSize'),
+    DesiredCapacity=tsp.Ref('DesiredCapacity'),
+)
+
 
 def test_string_parameters():
     class InstanceType(skies.StringParameter):
