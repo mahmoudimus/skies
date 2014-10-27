@@ -115,28 +115,92 @@ class If_InUSEast1(Condition):
 # class AWSInstanceType2Arch(skies.Mapping):
 #     m1_small = Item('m1.small', {'Arch': '64'})
 
-import troposphere as tsp
+import troposphere as ts
 import troposphere.ec2 as ec2
 import troposphere.elasticloadbalancing as elb
 
+atlas = None
 
-@skies.common_parameters
+
+@skies.common_parameters  # <- can modify Template.Parameters below
 @skies.configurations
-@skies.conditions
-class PypiStack(Template):
-    """pypi"""
+class PypiStack(skies.Template):
+    """pypi"""  # <- this is the template description
 
-    @skies.infra_params
-    class Parameters(object):
 
-        prefix = skies.StringParameter(description='naming prefix',
-                                       default='pypi')
+    @skies.config_params   # <- Operates directly on the Parameter class
+    class Parameters(skies.Parameter):
 
+        prefix = skies.fields.StringParameter(Description='naming prefix',
+                                              Default='pypi')
+
+    @skies.conditions
     class Conditions(object):
-        pass
 
-    Conditions = CommonConditionals
+        HasConf = ts.Not(ts.Equals(ts.Ref('ConfVer'), ''))
 
+    #: CloudFormation - Mapping
+    Mappings = skies.Mapping  # can do a cls var assignment of a template part
+
+    # resources
+
+    class PypiSecurityGroup(skies.resources.SecGrp):
+        ALLOW_IN = [
+            # by deafult, all SG fields have their cidrs bound to vpc_cidr
+            # TODO: is Bound a good name? Supposed to signal that a variable
+            #       will bet set later when the template is bound
+            skies.fields.TCP(from_='80', to_='80', cidrs=skies.fields.Bound('vpc_cidr')),
+            # can also accept a troposphere security group
+            ts.ec2.SecurityGroupRule('Pypi',
+                                     IpProtocol='tcp',
+                                     FromPort='80',
+                                     ToPort='80',
+                                     CidrIp=atlas.vpc_cidr), # CidrIP must be explicitly declared (can not be bound)
+        ]
+
+        ALLOW_OUT = skies.fields.ALL  # by default, it's ALL
+
+
+    # the name of the class can be set by __name__ or it is translated from
+    # CamelCase to snake_case, so: PypiLaunchConfig -> pypi_launch_config
+    class PypiLaunchConfig(skies.resources.LaunchConfig):
+        SECURITY_GROUPS = [PypiSecurityGroup] # <- relationship with Pypi SG has auto references
+
+
+    # you can use method invocation to create direct relationships
+    # PypiScaleGroup has a reference to PypiLaunchConfig
+    PypiScaleGroup = PypiLaunchConfig.scaling_group('PypiScaleGroup')
+
+    # if PypiScaleGroup above, was created via inheritance, you can use
+    # the scaling group params decorator below.
+    #
+    #  @Parameters.parameterize(MinSize='MIN_SIZE')
+    #  class PypiScaleGroup(skies.resources.ScaleGroup):
+    #      LAUNCH_CONFIGURATION = PypiLaunchConfig
+    #      MIN_SIZE = 1
+    #      MAX_SIZE = 1
+    # You have to remember to add the reference parameters that aren't found
+    # in Parameters first.
+    Parameters.parameterize(MinSize='MIN_SIZE')(PypiScaleGroup)
+
+
+    class PypiElb(skies.resources.EXTERNAL_HTTPS_ELB):
+        EXPOSED_PORT = '443'  # default
+        ALLOW_IN = [ ] # same as before
+        # extracts attribute 'ssl_cert_id' from the atlas that binds to this
+        # template
+        SSL_CERT = skies.fields.Bound('ssl_cert_id')
+
+        # TS health check
+        HEALTH_CHECK = elb.HealthCheck(Target='TCP:443',
+                                       HealthyThreshold='3',
+                                       UnhealthyThreshold='5',
+                                       Interval='30',
+                                       Timeout='5')
+
+
+
+    
 
 
 
