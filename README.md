@@ -14,6 +14,6 @@ class AppTemplate(skies.templates.BaseTemplate):
 
 
 template = AppTemplate()
-template.bind(atlas)
-template.to_json()
+app = atlas.bind(template)
+app.to_json()
 ```

@@ -120,6 +120,27 @@ import troposphere.ec2 as ec2
 import troposphere.elasticloadbalancing as elb
 
 
+@skies.common_parameters
+@skies.configurations
+@skies.conditions
+class PypiStack(Template):
+    """pypi"""
+
+    @skies.infra_params
+    class Parameters(object):
+
+        prefix = skies.StringParameter(description='naming prefix',
+                                       default='pypi')
+
+    class Conditions(object):
+        pass
+
+    Conditions = CommonConditionals
+
+
+
+
+
 class Pypi(Template):  # template = tsp.Template()
     # template.add_description('Pypi')
     """
